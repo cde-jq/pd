@@ -290,6 +290,7 @@ func (c *coordinator) run() {
 	}
 
 	scheduleCfg := c.cluster.opt.GetScheduleConfig().Clone()
+	log.Info("scheduleCfg Config", zap.Reflect("scheduleCfg", scheduleCfg))
 	// The new way to create scheduler with the independent configuration.
 	for i, name := range scheduleNames {
 		data := configs[i]
@@ -314,7 +315,7 @@ func (c *coordinator) run() {
 			log.Error("can not create scheduler with independent configuration", zap.String("scheduler-name", name), zap.Strings("scheduler-args", cfg.Args), errs.ZapError(err))
 			continue
 		}
-		log.Info("create scheduler with independent configuration", zap.String("scheduler-name", s.GetName()))
+		log.Info("create scheduler with independent configuration "+data, zap.String("scheduler-name", s.GetName()))
 		if err = c.addScheduler(s); err != nil {
 			log.Error("can not add scheduler with independent configuration", zap.String("scheduler-name", s.GetName()), zap.Strings("scheduler-args", cfg.Args), errs.ZapError(err))
 		}
@@ -579,6 +580,15 @@ func (c *coordinator) addScheduler(scheduler schedule.Scheduler, args ...string)
 
 	if _, ok := c.schedulers[scheduler.GetName()]; ok {
 		return errs.ErrSchedulerExisted.FastGenByArgs()
+	}
+
+	data, err := scheduler.EncodeConfig()
+	if err != nil {
+		return err
+	}
+	err = c.cluster.storage.SaveScheduleConfig(scheduler.GetName(), data)
+	if err != nil {
+		return err
 	}
 
 	s := newScheduleController(c, scheduler)

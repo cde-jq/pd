@@ -34,6 +34,11 @@ var (
 	grantLeaderSchedulerName = "grant-leader-scheduler"
 )
 
+type KeyRange struct {
+	StartKey []byte `json:"start-key"`
+	EndKey   []byte `json:"end-key"`
+}
+
 // NewSchedulerCommand returns a scheduler command.
 func NewSchedulerCommand() *cobra.Command {
 	c := &cobra.Command{
@@ -402,7 +407,43 @@ func NewConfigSchedulerCommand() *cobra.Command {
 		newConfigGrantLeaderCommand(),
 		newConfigHotRegionCommand(),
 		newConfigShuffleRegionCommand(),
+		newConfigBalanceLeaderCommand(),
+		newConfigAffinityCommand(),
 	)
+	return c
+}
+
+func newConfigBalanceLeaderCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "balance-leader-scheduler",
+		Short: "balance-leader-scheduler config",
+		Run:   listSchedulerConfigCommandFunc,
+	}
+	c.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "list the config item",
+		Run:   listSchedulerConfigCommandFunc})
+	c.AddCommand(&cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "set the config item",
+		Run:   func(cmd *cobra.Command, args []string) { postSchedulerConfigCommandFunc(cmd, c.Name(), args) }})
+	return c
+}
+
+func newConfigAffinityCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "affinity-scheduler",
+		Short: "affinity-scheduler config",
+		Run:   listSchedulerConfigCommandFunc,
+	}
+	c.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "list the config item",
+		Run:   listSchedulerConfigCommandFunc})
+	c.AddCommand(&cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "set the config item",
+		Run:   func(cmd *cobra.Command, args []string) { postSchedulerConfigCommandFunc(cmd, c.Name(), args) }})
 	return c
 }
 
@@ -528,6 +569,7 @@ func postSchedulerConfigCommandFunc(cmd *cobra.Command, schedulerName string, ar
 		val = value
 	}
 	input[key] = val
+
 	postJSON(cmd, path.Join(schedulerConfigPrefix, schedulerName, "config"), input)
 }
 

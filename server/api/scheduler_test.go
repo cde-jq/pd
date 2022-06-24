@@ -134,7 +134,7 @@ func (s *testScheduleSuite) TestAPI(c *C) {
 				}
 				// update again
 				err = postJSON(testDialClient, updateURL, body, func(res []byte, code int) {
-					c.Assert(string(res), Equals, "no changed")
+					c.Assert(string(res), Equals, "success")
 					c.Assert(code, Equals, 200)
 				})
 				c.Assert(err, IsNil)

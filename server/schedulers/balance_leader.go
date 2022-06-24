@@ -14,9 +14,13 @@
 package schedulers
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
 	"sort"
 	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/pd/pkg/errs"
@@ -25,6 +29,7 @@ import (
 	"github.com/tikv/pd/server/schedule/filter"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedule/opt"
+	"github.com/unrolled/render"
 	"go.uber.org/zap"
 )
 
@@ -59,7 +64,7 @@ func init() {
 		if err := decoder(conf); err != nil {
 			return nil, err
 		}
-		return newBalanceLeaderScheduler(opController, conf), nil
+		return newBalanceLeaderScheduler(opController, conf, storage), nil
 	})
 }
 
@@ -74,11 +79,12 @@ type balanceLeaderScheduler struct {
 	opController *schedule.OperatorController
 	filters      []filter.Filter
 	counter      *prometheus.CounterVec
+	storage      *core.Storage
 }
 
 // newBalanceLeaderScheduler creates a scheduler that tends to keep leaders on
 // each store balanced.
-func newBalanceLeaderScheduler(opController *schedule.OperatorController, conf *balanceLeaderSchedulerConfig, options ...BalanceLeaderCreateOption) schedule.Scheduler {
+func newBalanceLeaderScheduler(opController *schedule.OperatorController, conf *balanceLeaderSchedulerConfig, storage *core.Storage, options ...BalanceLeaderCreateOption) schedule.Scheduler {
 	base := NewBaseScheduler(opController)
 
 	s := &balanceLeaderScheduler{
@@ -86,6 +92,7 @@ func newBalanceLeaderScheduler(opController *schedule.OperatorController, conf *
 		conf:          conf,
 		opController:  opController,
 		counter:       balanceLeaderCounter,
+		storage:       storage,
 	}
 	for _, option := range options {
 		option(s)
@@ -288,4 +295,62 @@ func (l *balanceLeaderScheduler) createOperator(plan *balancePlan) []*operator.O
 	op.AdditionalInfos["sourceScore"] = strconv.FormatFloat(plan.sourceScore, 'f', 2, 64)
 	op.AdditionalInfos["targetScore"] = strconv.FormatFloat(plan.targetScore, 'f', 2, 64)
 	return []*operator.Operator{op}
+}
+
+func (l *balanceLeaderScheduler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	router := mux.NewRouter()
+	router.HandleFunc("/list", l.handleGetConfig).Methods("GET")
+	router.HandleFunc("/config", l.handleSetConfig).Methods("POST")
+	router.ServeHTTP(w, r)
+}
+
+func (l *balanceLeaderScheduler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+
+	rd := render.New(render.Options{IndentJSON: true})
+	rd.JSON(w, http.StatusOK, l.conf)
+}
+
+func (l *balanceLeaderScheduler) handleSetConfig(w http.ResponseWriter, r *http.Request) {
+
+	rd := render.New(render.Options{IndentJSON: true})
+
+	data, err := io.ReadAll(r.Body)
+	r.Body.Close()
+	if err != nil {
+		rd.JSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	m := make(map[string]interface{})
+	if err := json.Unmarshal(data, &m); err != nil {
+		rd.JSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if v, ok := m["ranges"]; ok {
+
+		if err := json.Unmarshal([]byte(v.(string)), &l.conf.Ranges); err != nil {
+			rd.JSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := l.persist(); err != nil {
+			rd.JSON(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		rd.Text(w, http.StatusOK, "success")
+		return
+	}
+
+	rd.Text(w, http.StatusBadRequest, "config item not found")
+}
+
+func (l *balanceLeaderScheduler) persist() error {
+	data, err := schedule.EncodeConfig(l.conf)
+	if err != nil {
+		return err
+
+	}
+	return l.storage.SaveScheduleConfig(l.conf.Name, data)
+
 }

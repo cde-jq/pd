@@ -501,6 +501,7 @@ func (s *heartbeatServer) Recv() (*pdpb.RegionHeartbeatRequest, error) {
 
 // RegionHeartbeat implements gRPC PDServer.
 func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
+	log.Info("in RegionHeartbeat")
 	server := &heartbeatServer{stream: stream}
 	FlowRoundByDigit := s.persistOptions.GetPDServerConfig().FlowRoundByDigit
 	var (
@@ -519,15 +520,19 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 
 	for {
 		request, err := server.Recv()
+		log.Debug("heart req", zap.Error(err))
 		if err == io.EOF {
+			log.Info("recv err eof")
 			return nil
 		}
 		if err != nil {
+			log.Info("recv err ", zap.Error(err))
 			return errors.WithStack(err)
 		}
 
 		forwardedHost := getForwardedHost(stream.Context())
 		if !s.isLocalRequest(forwardedHost) {
+			log.Debug("in not local request")
 			if forwardStream == nil || lastForwardedHost != forwardedHost {
 				if cancel != nil {
 					cancel()
@@ -556,9 +561,9 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 			}
 			continue
 		}
-
 		rc := s.GetRaftCluster()
 		if rc == nil {
+			log.Warn("get raftcluster return nil")
 			resp := &pdpb.RegionHeartbeatResponse{
 				Header: s.notBootstrappedHeader(),
 			}
@@ -567,6 +572,7 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		}
 
 		if err = s.validateRequest(request.GetHeader()); err != nil {
+			log.Info("validateRequest failed", zap.Error(err))
 			return err
 		}
 
@@ -574,6 +580,7 @@ func (s *Server) RegionHeartbeat(stream pdpb.PD_RegionHeartbeatServer) error {
 		storeLabel := strconv.FormatUint(storeID, 10)
 		store := rc.GetStore(storeID)
 		if store == nil {
+			log.Info("validateRequest failed", zap.Error(errors.Errorf("invalid store ID %d, not found", storeID)))
 			return errors.Errorf("invalid store ID %d, not found", storeID)
 		}
 		storeAddress := store.GetAddress()

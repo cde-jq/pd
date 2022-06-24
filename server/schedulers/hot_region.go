@@ -14,6 +14,7 @@
 package schedulers
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"math/rand"
@@ -40,6 +41,15 @@ import (
 func init() {
 	schedule.RegisterSliceDecoderBuilder(HotRegionType, func(args []string) schedule.ConfigDecoder {
 		return func(v interface{}) error {
+			conf, ok := v.(*hotRegionSchedulerConfig)
+			if !ok {
+				return errs.ErrScheduleConfigNotExist.FastGenByArgs()
+			}
+			ranges, err := getKeyRanges(args)
+			if err != nil {
+				return err
+			}
+			conf.Ranges = ranges
 			return nil
 		}
 	})
@@ -136,6 +146,10 @@ func newHotWriteScheduler(opController *schedule.OperatorController, conf *hotRe
 	ret.name = ""
 	ret.types = []rwType{write}
 	return ret
+}
+
+func (l *hotScheduler) EncodeConfig() ([]byte, error) {
+	return schedule.EncodeConfig(l.conf)
 }
 
 func (h *hotScheduler) GetName() string {
@@ -673,10 +687,27 @@ func (bs *balanceSolver) sortHotPeers(ret []*statistics.HotPeerStat, maxPeerNum 
 	return union
 }
 
+func isInvolved(region *core.RegionInfo, startKey, endKey []byte) bool {
+	return bytes.Compare(region.GetStartKey(), startKey) >= 0 &&
+		(len(endKey) == 0 ||
+			(len(region.GetEndKey()) > 0 && bytes.Compare(region.GetEndKey(), endKey) <= 0))
+}
+
 // isRegionAvailable checks whether the given region is not available to schedule.
 func (bs *balanceSolver) isRegionAvailable(region *core.RegionInfo) bool {
 	if region == nil {
 		schedulerCounter.WithLabelValues(bs.sche.GetName(), "no-region").Inc()
+		return false
+	}
+	inranges := false
+	for _, r := range bs.sche.conf.Ranges {
+		if isInvolved(region, r.StartKey, r.EndKey) {
+			inranges = true
+			break
+		}
+	}
+	if !inranges {
+		log.Info("skip hot region schedule out of range")
 		return false
 	}
 

@@ -659,7 +659,8 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			saveCache = true
 		}
 	}
-
+	log.Debug("## ", zap.Bool("saveKV", saveKV), zap.Bool("saveCache", saveCache),
+		zap.Bool("isNew", isNew), zap.Bool("needSync", needSync))
 	if !saveKV && !saveCache && !isNew {
 		return nil
 	}
@@ -703,9 +704,9 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		regionEventCounter.WithLabelValues("update_cache").Inc()
 	}
 
-	if isNew {
-		c.prepareChecker.collect(region)
-	}
+	// if isNew {
+	c.prepareChecker.collect(region)
+	// }
 
 	if c.regionStats != nil {
 		c.regionStats.Observe(region, c.getRegionStoresLocked(region))
@@ -1553,6 +1554,8 @@ func (checker *prepareChecker) check(c *RaftCluster) bool {
 	}
 	// The number of active regions should be more than total region of all stores * collectFactor
 	if float64(c.core.GetRegionCount())*collectFactor > float64(checker.sum) {
+		log.Info("check failed", zap.Int("region count", c.core.GetRegionCount()),
+			zap.Int("sum", checker.sum))
 		return false
 	}
 	for _, store := range c.GetStores() {
@@ -1562,6 +1565,8 @@ func (checker *prepareChecker) check(c *RaftCluster) bool {
 		storeID := store.GetID()
 		// For each store, the number of active regions should be more than total region of the store * collectFactor
 		if float64(c.core.GetStoreRegionCount(storeID))*collectFactor > float64(checker.reactiveRegions[storeID]) {
+			log.Info("check store failed", zap.Int("region count", c.core.GetStoreRegionCount(storeID)),
+				zap.Int("sum", checker.reactiveRegions[storeID]), zap.Uint64("store", storeID))
 			return false
 		}
 	}
@@ -1570,6 +1575,7 @@ func (checker *prepareChecker) check(c *RaftCluster) bool {
 }
 
 func (checker *prepareChecker) collect(region *core.RegionInfo) {
+	log.Info("collect region", zap.Uint64("region", region.GetID()))
 	for _, p := range region.GetPeers() {
 		checker.reactiveRegions[p.GetStoreId()]++
 	}

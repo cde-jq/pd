@@ -61,7 +61,7 @@ func init() {
 		if len(rangeName) == 0 {
 			return nil, errs.ErrSchedulerConfig.FastGenByArgs("range name")
 		}
-		return newScatterRangeScheduler(opController, conf), nil
+		return newScatterRangeScheduler(opController, conf, storage), nil
 	})
 }
 
@@ -148,7 +148,7 @@ type scatterRangeScheduler struct {
 }
 
 // newScatterRangeScheduler creates a scheduler that balances the distribution of leaders and regions that in the specified key range.
-func newScatterRangeScheduler(opController *schedule.OperatorController, config *scatterRangeSchedulerConfig) schedule.Scheduler {
+func newScatterRangeScheduler(opController *schedule.OperatorController, config *scatterRangeSchedulerConfig, storage *core.Storage) schedule.Scheduler {
 	base := NewBaseScheduler(opController)
 
 	name := config.getSchedulerName()
@@ -161,6 +161,7 @@ func newScatterRangeScheduler(opController *schedule.OperatorController, config 
 		balanceLeader: newBalanceLeaderScheduler(
 			opController,
 			&balanceLeaderSchedulerConfig{Ranges: []core.KeyRange{core.NewKeyRange("", "")}},
+			storage,
 			WithBalanceLeaderName("scatter-range-leader"),
 			WithBalanceLeaderCounter(scatterRangeLeaderCounter),
 		),

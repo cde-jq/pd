@@ -722,7 +722,7 @@ func (s *testCoordinatorSuite) TestPersistScheduler(c *C) {
 	// only remains 3 items with independent config.
 	sches, _, err = storage.LoadAllScheduleConfig()
 	c.Assert(err, IsNil)
-	c.Assert(sches, HasLen, 3)
+	c.Assert(sches, HasLen, 2)
 
 	// option have 7 items because the default scheduler do not remove.
 	c.Assert(newOpt.GetSchedulers(), HasLen, 7)

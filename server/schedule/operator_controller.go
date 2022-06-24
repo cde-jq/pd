@@ -286,8 +286,7 @@ func (oc *OperatorController) AddWaitingOperator(ops ...*operator.Operator) int 
 				_ = next.Cancel()
 				oc.buryOperator(next)
 			}
-			oc.Unlock()
-			return added
+			break
 		}
 		oc.wop.PutOperator(op)
 		if isMerge {

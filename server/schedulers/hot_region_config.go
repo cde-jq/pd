@@ -14,7 +14,6 @@
 package schedulers
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -44,6 +43,7 @@ func initHotRegionScheduleConfig() *hotRegionSchedulerConfig {
 		MaxPeerNum:            1000,
 		SrcToleranceRatio:     1.05, // Tolerate 5% difference
 		DstToleranceRatio:     1.05, // Tolerate 5% difference
+		Ranges:                []core.KeyRange{{StartKey: []byte(""), EndKey: []byte("")}},
 	}
 }
 
@@ -58,13 +58,14 @@ type hotRegionSchedulerConfig struct {
 
 	// rank step ratio decide the step when calculate rank
 	// step = max current * rank step ratio
-	ByteRateRankStepRatio float64 `json:"byte-rate-rank-step-ratio"`
-	KeyRateRankStepRatio  float64 `json:"key-rate-rank-step-ratio"`
-	CountRankStepRatio    float64 `json:"count-rank-step-ratio"`
-	GreatDecRatio         float64 `json:"great-dec-ratio"`
-	MinorDecRatio         float64 `json:"minor-dec-ratio"`
-	SrcToleranceRatio     float64 `json:"src-tolerance-ratio"`
-	DstToleranceRatio     float64 `json:"dst-tolerance-ratio"`
+	ByteRateRankStepRatio float64         `json:"byte-rate-rank-step-ratio"`
+	KeyRateRankStepRatio  float64         `json:"key-rate-rank-step-ratio"`
+	CountRankStepRatio    float64         `json:"count-rank-step-ratio"`
+	GreatDecRatio         float64         `json:"great-dec-ratio"`
+	MinorDecRatio         float64         `json:"minor-dec-ratio"`
+	SrcToleranceRatio     float64         `json:"src-tolerance-ratio"`
+	DstToleranceRatio     float64         `json:"dst-tolerance-ratio"`
+	Ranges                []core.KeyRange `json:"ranges"`
 }
 
 func (conf *hotRegionSchedulerConfig) EncodeConfig() ([]byte, error) {
@@ -169,7 +170,7 @@ func (conf *hotRegionSchedulerConfig) handleSetConfig(w http.ResponseWriter, r *
 	conf.Lock()
 	defer conf.Unlock()
 	rd := render.New(render.Options{IndentJSON: true})
-	oldc, _ := json.Marshal(conf)
+	// oldc, _ := json.Marshal(conf)
 	data, err := io.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
@@ -177,15 +178,15 @@ func (conf *hotRegionSchedulerConfig) handleSetConfig(w http.ResponseWriter, r *
 		return
 	}
 
-	if err := json.Unmarshal(data, conf); err != nil {
-		rd.JSON(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	newc, _ := json.Marshal(conf)
-	if !bytes.Equal(oldc, newc) {
-		conf.persist()
-		rd.Text(w, http.StatusOK, "success")
-	}
+	// if err := json.Unmarshal(data, conf); err != nil {
+	// 	rd.JSON(w, http.StatusInternalServerError, err.Error())
+	// 	return
+	// }
+	// newc, _ := json.Marshal(conf)
+	// if !bytes.Equal(oldc, newc) {
+	// 	conf.persist()
+	// 	rd.Text(w, http.StatusOK, "success")
+	// }
 
 	m := make(map[string]interface{})
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -193,13 +194,26 @@ func (conf *hotRegionSchedulerConfig) handleSetConfig(w http.ResponseWriter, r *
 		return
 	}
 	t := reflect.TypeOf(conf).Elem()
+	fv := reflect.ValueOf(conf).Elem()
 	for i := 0; i < t.NumField(); i++ {
 		jsonTag := t.Field(i).Tag.Get("json")
 		if i := strings.Index(jsonTag, ","); i != -1 { // trim 'foobar,string' to 'foobar'
 			jsonTag = jsonTag[:i]
 		}
-		if _, ok := m[jsonTag]; ok {
-			rd.Text(w, http.StatusOK, "no changed")
+		if v, ok := m[jsonTag]; ok {
+			if jsonTag == "ranges" {
+				if err := json.Unmarshal([]byte(v.(string)), &conf.Ranges); err != nil {
+					rd.JSON(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			} else {
+				fv.Field(i).Set(reflect.ValueOf(v).Convert(t.Field(i).Type))
+			}
+			if err := conf.persist(); err != nil {
+				rd.JSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			rd.Text(w, http.StatusOK, "success")
 			return
 		}
 	}
